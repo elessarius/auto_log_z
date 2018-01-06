@@ -1,0 +1,5 @@
+Debug/**
+*.vcxproj
+*.filters
+config
+logs
