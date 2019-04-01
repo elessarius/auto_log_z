@@ -1,5 +1,2 @@
-Debug/**
-*.vcxproj
-*.filters
-config
-logs
+*.user
+*.autosave

