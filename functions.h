@@ -65,7 +65,7 @@ bool screen_shot(char *szFilename,
 				 int Left, 
 				 int Width, 
 				 int Height);
-bool  save_bitmap(char *szFilename, HBITMAP hBitmap);
+bool save_bitmap(char *szFilename, HBITMAP hBitmap);
 int _random(void);
 void delete_socket(SOCKET s);
 SOCKET create_socket(char * serverHost, int serverPort );
