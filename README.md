@@ -1,5 +1,4 @@
 # auto_log_z
-### (c) 2017-2021 by elessarius
 
 This spy application creates an entry in the registry for autorun, copies itself.</br>
 Logs keystrokes of the keyboard and mouse buttons, creates screen shots.</br>
